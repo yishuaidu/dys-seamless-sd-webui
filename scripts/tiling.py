@@ -17,7 +17,7 @@ from typing import Optional
 class Script(modules.scripts.Script):
     # Override from modules.scripts.Script
     def title(self):
-        return "Asymmetric tiling"
+        return "dys tiling"
 
     # Override from modules.scripts.Script
     def show(self, is_img2img):
@@ -25,7 +25,7 @@ class Script(modules.scripts.Script):
     
     # Override from modules.scripts.Script
     def ui(self, is_img2img):
-        with gradio.Accordion("Asymmetric tiling", open=False):
+        with gradio.Accordion("dys tiling", open=False):
             active = gradio.Checkbox(False, label="Active")
             tileX = gradio.Checkbox(False, label="Tile X")
             tileY = gradio.Checkbox(False, label="Tile Y")
