@@ -17,7 +17,7 @@ from typing import Optional
 class Script(modules.scripts.Script):
     # Override from modules.scripts.Script
     def title(self):
-        return "dys_tiling"
+        return "dys tiling"
 
     # Override from modules.scripts.Script
     def show(self, is_img2img):
@@ -25,18 +25,16 @@ class Script(modules.scripts.Script):
     
     # Override from modules.scripts.Script
     def ui(self, is_img2img):
-        with gradio.Accordion("dys_tiling", open=False):
+        with gradio.Accordion("dys tiling", open=False):
             active = gradio.Checkbox(False, label="Active")
-            tileX = gradio.Checkbox(False, label="Tile X")
+            tileX = gradio.Checkbox(True, label="Tile X")
             tileY = gradio.Checkbox(False, label="Tile Y")
-            tileXY= gradio.Checkbox(True, label="Tile XY")
-            startStep = gradio.Number(0, label="dispersion", precision=0)
-            # stopStep = gradio.Number(-1, label="Stop tiling after step N (-1: Don't stop)", precision=0)
-        stopStep = -1
-        return [active, tileX, tileY, tileXY, startStep, stopStep]
+            tileXY = gradio.Checkbox(False, label="Tile XY")
+            startStep = gradio.Number(0, label="dispersion weight up to Sampling steps", precision=0)
+        return [active, tileX, tileY, tileXY, startStep]
 
     # Override from modules.scripts.Script
-    def process(self, p, active, tileX, tileY, tileXY, startStep, stopStep):
+    def process(self, p, active, tileX, tileY, tileXY, startStep):
         if (active):
             # Record tiling options chosen for each axis.
             p.extra_generation_params = {
@@ -44,11 +42,10 @@ class Script(modules.scripts.Script):
                 "Tile Y": tileY,
                 "Tile XY": tileXY,
                 "Start Tiling From Step": startStep,
-                "Stop Tiling After Step": stopStep,
             }
 
             # Modify the model's Conv2D layers to perform our chosen tiling.
-            self.__hijackConv2DMethods(tileX, tileY, tileXY, startStep, stopStep)
+            self.__hijackConv2DMethods(tileX, tileY, tileXY, startStep)
         else:
             # Restore model behaviour to normal.
             self.__restoreConv2DMethods()
@@ -57,12 +54,13 @@ class Script(modules.scripts.Script):
         # Restore model behaviour to normal.
         self.__restoreConv2DMethods()
     
-
-    def __hijackConv2DMethods(self, tileX: bool, tileY: bool, tileXY: bool,  startStep: int, stopStep: int):
+    # [Private]
+    # Go through all the "Conv2D" layers in the model and patch them to use the requested asymmetric tiling mode.
+    def __hijackConv2DMethods(self, tileX: bool, tileY: bool,  tileXY: bool, startStep: int):
+        stopStep = -1
         if tileXY:
-            tileX=True
-            tileY=True
-
+            tileX = True
+            tileY = True
         for layer in modules.sd_hijack.model_hijack.layers:
             if type(layer) == Conv2d:
                 layer.padding_modeX = 'circular' if tileX else 'constant'
@@ -73,12 +71,20 @@ class Script(modules.scripts.Script):
                 layer.paddingStopStep = stopStep
                 layer._conv_forward = Script.__replacementConv2DConvForward.__get__(layer, Conv2d)
 
-
+    # [Private]
+    # Go through all the "Conv2D" layers in the model and restore them to their origanal behaviour.
     def __restoreConv2DMethods(self):
         for layer in modules.sd_hijack.model_hijack.layers:
             if type(layer) == Conv2d:
                 layer._conv_forward = Conv2d._conv_forward.__get__(layer, Conv2d)
 
+    # [Private]
+    # A replacement for the Conv2d._conv_forward method that pads axes asymmetrically.
+    # This replacement method performs the same operation (as of torch v1.12.1+cu113), but it pads the X and Y axes separately based on the members
+    #   padding_modeX (string, either 'circular' or 'constant') 
+    #   padding_modeY (string, either 'circular' or 'constant')
+    #   paddingX (tuple, cached copy of _reversed_padding_repeated_twice with the last two values zeroed)
+    #   paddingY (tuple, cached copy of _reversed_padding_repeated_twice with the first two values zeroed)
     def __replacementConv2DConvForward(self, input: Tensor, weight: Tensor, bias: Optional[Tensor]):
         step = modules.shared.state.sampling_step
         if ((self.paddingStartStep < 0 or step >= self.paddingStartStep) and (self.paddingStopStep < 0 or step <= self.paddingStopStep)):
